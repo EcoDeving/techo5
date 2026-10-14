@@ -418,34 +418,95 @@ func (r *renderer) dashboardStyle(s scene, box image.Rectangle) {
 	top := box.Min.Y - r.s(40) // the weather corner is not drawn: the top is the time's
 	base := top + capHeight(tf) + r.s(8)
 	r.text(tf, hm, box.Min.X, base, cream)
+	after := box.Min.X + r.width(tf, hm)
 	if ampm != "" {
-		r.text(r.title, ampm, box.Min.X+r.width(tf, hm)+r.s(12), base, dateColor(amber))
+		r.text(r.title, ampm, after+r.s(12), base, dateColor(amber))
+		after += r.s(12) + r.width(r.title, ampm)
 	}
-	// The next events, in a column on the right, clear of the date and its alarm.
-	col := r.w/2 + r.s(70)
+	// The next events, in a column on the right. Its divider sits a steady margin past the widest the
+	// time and the temperature can be ("88:88", "88°"), not past this minute's, so it never shifts; it
+	// stays within the middle of the screen however narrow or wide that is.
+	hf, mark := r.styleFace(true, 40), r.s(48)
+	widest := box.Min.X + r.width(tf, "88:88")
+	if ampm != "" {
+		widest += r.s(12) + r.width(r.title, "PM")
+	}
+	if s.weather.Temp != "" {
+		widest += r.s(28) + max(mark, r.width(hf, "88°"))
+	}
+	col := min(max(widest+r.s(60), r.w/2-r.s(40)), r.w/2+r.s(70)) // the divider is col-30: as much air either side
+	// The temperature now: this style leaves the weather corner out, and the row below only has each
+	// day's high and low. Beside the time, the icon over the degrees, when it fits before the events;
+	// otherwise at the right end of the events' heading.
+	if t := s.weather.Temp; t != "" {
+		w, x := max(mark, r.width(hf, t)), after+r.s(28)
+		if x+w <= col-r.s(40) {
+			cx := x + w/2
+			if s.weather.Condition != "" {
+				r.weatherIcon(s.weather.Condition, cx, top+r.s(14)+mark/2, mark)
+			}
+			r.text(hf, t, cx-r.width(hf, t)/2, base, cream)
+		} else {
+			hf, mark = r.styleFace(true, 30), r.s(40)
+			x = r.w - r.margin - r.width(hf, t)
+			r.text(hf, t, x, top+r.s(24), cream)
+			if s.weather.Condition != "" {
+				r.weatherIcon(s.weather.Condition, x-r.s(10)-mark/2, top+r.s(24)-capHeight(hf)/2, mark)
+			}
+		}
+	}
+	// The coming days, when there is room for them, sit at the foot; the events above them get whatever
+	// height is left, as many as fit.
+	days, rowH := s.style.days, r.s(150) // the row: names, icons and temperatures
+	showRow := len(days) > 0 && box.Max.Y-(base+r.s(86)) >= rowH
+	row, evEnd := 0, box.Max.Y
+	if showRow {
+		// The row sits at the foot, so the middle of the screen is left clear for a tap that starts Assist.
+		row = max(base+r.s(86), box.Max.Y-rowH)
+		evEnd = row - r.s(24)
+	}
 	r.styleDateIn(r.small, s, box.Min.X, base+r.s(50), -1, col-r.s(50)-box.Min.X)
-	r.fxLine(float64(col-r.s(30)), float64(top+r.s(4)), float64(col-r.s(30)), float64(base+r.s(56)), float64(r.s(2)), ember, 1)
-	r.text(r.styleFace(true, 20), "NEXT", col, top+r.s(20), dim)
+	divEnd := base + r.s(56)
+	if showRow {
+		divEnd = max(divEnd, evEnd) // down beside the events, to above the row
+	}
+	r.fxLine(float64(col-r.s(30)), float64(top+r.s(4)), float64(col-r.s(30)), float64(divEnd), float64(r.s(2)), ember, 1)
+	r.text(r.styleFace(true, 20), locale.Upcoming(screenLang()), col, top+r.s(20), dim)
 	y := top + r.s(62)
 	if len(s.style.next) == 0 {
-		r.text(r.tiny, "Nothing coming up", col, y, dim)
+		r.text(r.tiny, locale.NothingSoon(screenLang()), col, y, dim)
 	}
-	tx := col + r.s(150)
+	// Each "when" is its day in the accent and its time beside it, quieter; the names start just past
+	// the widest, so short ones ("Sun") leave the names their room.
+	whenWidth := func(day, hhm string) int {
+		w := r.width(r.tiny, day)
+		if hhm != "" {
+			w += r.s(8) + r.width(r.tiny, hhm)
+		}
+		return w
+	}
+	tx := col
 	for _, e := range s.style.next {
-		tx = max(tx, col+r.width(r.tiny, dashWhen(e, s.now))+r.s(20))
+		tx = max(tx, col+whenWidth(dashWhen(e, s.now))+r.s(18))
 	}
 	for _, e := range s.style.next {
-		r.text(r.tiny, dashWhen(e, s.now), col, y, amber)
+		if y > evEnd {
+			break
+		}
+		day, hhm := dashWhen(e, s.now)
+		r.text(r.tiny, day, col, y, amber)
+		if hhm != "" {
+			r.text(r.tiny, hhm, col+r.width(r.tiny, day)+r.s(8), y, dim)
+		}
 		r.text(r.tiny, r.clipTo(r.tiny, e.Summary, r.w-r.margin-tx), tx, y, cream)
 		y += r.s(44)
 	}
 	// A tap on the column, its heading to its last line, opens the agenda.
 	r.setNextAt(image.Rect(col-r.s(20), top-r.s(10), r.w-r.margin, max(y-r.s(30), top+r.s(76))+r.s(10)))
 
-	// The coming days, when there is room for them; otherwise today's weather on a line, so the style that
-	// leaves out the weather corner still says what it is outside and still opens the forecast.
-	days := s.style.days
-	if len(days) == 0 || box.Max.Y-(base+r.s(86)) < r.s(150) { // the row: names, icons and temperatures
+	// Without room for the row, today's weather on a line, so the style that leaves out the weather
+	// corner still says what it is outside and still opens the forecast.
+	if !showRow {
 		if line := weatherText(s); line != "" {
 			y := min(base+r.s(100), box.Max.Y)
 			ix := box.Min.X
@@ -459,8 +520,6 @@ func (r *renderer) dashboardStyle(s scene, box image.Rectangle) {
 		return
 	}
 	days = days[:min(len(days), 5)]
-	// The row sits at the foot, so the middle of the screen is left clear for a tap that starts Assist.
-	row := max(base+r.s(86), box.Max.Y-r.s(150))
 	left, right := r.dashRowSpan(days, box, row, s.callButton)
 	cw := (right - left) / len(days)
 	for i, d := range days {
@@ -504,28 +563,24 @@ func (r *renderer) dashRowSpan(days []hass.Day, box image.Rectangle, row int, ca
 	return left + in, right - in
 }
 
-// dashWhen is when an event starts, as the dashboard writes it: "Now" for one under way, its time
-// today, "Tmrw" and the time tomorrow, the weekday and the time after that, and "Today", "Tomorrow" or
-// the weekday alone for one with no time.
-func dashWhen(e hass.Event, now time.Time) string {
-	start, allDay := e.Start, e.AllDay
-	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-	tomorrow, later := today.AddDate(0, 0, 1), today.AddDate(0, 0, 2)
-	switch {
-	case !allDay && !start.After(now):
-		return "Now"
-	case allDay && start.Before(tomorrow):
-		return "Today"
-	case allDay && start.Before(later):
-		return "Tomorrow"
-	case allDay:
-		return locale.ShortWeekday(start, screenLang())
-	case start.Before(tomorrow):
-		return clockText(start)
-	case start.Before(later):
-		return "Tmrw " + strings.TrimSpace(clockText(start))
+// dashWhen is when an event starts, as the dashboard writes it, in the screen's language: the day
+// ("Today", or the short weekday from tomorrow on) and apart its time, empty for an all-day event; an
+// event under way is "Now" with no time.
+func dashWhen(e hass.Event, now time.Time) (day, hhm string) {
+	lang := screenLang()
+	start := e.Start
+	if !e.AllDay && !start.After(now) {
+		return locale.Now(lang), ""
 	}
-	return locale.ShortWeekday(start, screenLang()) + " " + strings.TrimSpace(clockText(start))
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	day = locale.ShortWeekday(start, lang)
+	if start.Before(today.AddDate(0, 0, 1)) {
+		day = locale.Today(lang)
+	}
+	if !e.AllDay {
+		hhm = strings.TrimSpace(clockText(start))
+	}
+	return day, hhm
 }
 
 // cornerStyle is whether a style has a small version for a corner at the foot (Clock position). The
