@@ -418,42 +418,8 @@ func (r *renderer) dashboardStyle(s scene, box image.Rectangle) {
 	top := box.Min.Y - r.s(40) // the weather corner is not drawn: the top is the time's
 	base := top + capHeight(tf) + r.s(8)
 	r.text(tf, hm, box.Min.X, base, cream)
-	after := box.Min.X + r.width(tf, hm)
 	if ampm != "" {
-		r.text(r.title, ampm, after+r.s(12), base, dateColor(amber))
-		after += r.s(12) + r.width(r.title, ampm)
-	}
-	// The next events, in a column on the right. Its divider sits a steady margin past the widest the
-	// time and the temperature can be ("88:88", "88°"), not past this minute's, so it never shifts; it
-	// stays within the middle of the screen however narrow or wide that is.
-	hf, mark := r.styleFace(true, 40), r.s(48)
-	widest := box.Min.X + r.width(tf, "88:88")
-	if ampm != "" {
-		widest += r.s(12) + r.width(r.title, "PM")
-	}
-	if s.weather.Temp != "" {
-		widest += r.s(28) + max(mark, r.width(hf, "88°"))
-	}
-	col := min(max(widest+r.s(60), r.w/2-r.s(40)), r.w/2+r.s(70)) // the divider is col-30: as much air either side
-	// The temperature now: this style leaves the weather corner out, and the row below only has each
-	// day's high and low. Beside the time, the icon over the degrees, when it fits before the events;
-	// otherwise at the right end of the events' heading.
-	if t := s.weather.Temp; t != "" {
-		w, x := max(mark, r.width(hf, t)), after+r.s(28)
-		if x+w <= col-r.s(40) {
-			cx := x + w/2
-			if s.weather.Condition != "" {
-				r.weatherIcon(s.weather.Condition, cx, top+r.s(14)+mark/2, mark)
-			}
-			r.text(hf, t, cx-r.width(hf, t)/2, base, cream)
-		} else {
-			hf, mark = r.styleFace(true, 30), r.s(40)
-			x = r.w - r.margin - r.width(hf, t)
-			r.text(hf, t, x, top+r.s(24), cream)
-			if s.weather.Condition != "" {
-				r.weatherIcon(s.weather.Condition, x-r.s(10)-mark/2, top+r.s(24)-capHeight(hf)/2, mark)
-			}
-		}
+		r.text(r.title, ampm, box.Min.X+r.width(tf, hm)+r.s(12), base, dateColor(amber))
 	}
 	// The coming days, when there is room for them, sit at the foot; the events above them get whatever
 	// height is left, as many as fit.
@@ -465,19 +431,55 @@ func (r *renderer) dashboardStyle(s scene, box image.Rectangle) {
 		row = max(base+r.s(86), box.Max.Y-rowH)
 		evEnd = row - r.s(24)
 	}
-	r.styleDateIn(r.small, s, box.Min.X, base+r.s(50), -1, col-r.s(50)-box.Min.X)
-	divEnd := base + r.s(56)
-	if showRow {
-		divEnd = max(divEnd, evEnd) // down beside the events, to above the row
+	// Across, everything is placed from the widest the time and the temperature can be, not this
+	// minute's or this reading's, so nothing moves as they change: the time's digits are all one width,
+	// so "88:88" and the wider of AM and PM, and a reading is at most "-88°" or "888°".
+	hf, mark := r.styleFace(true, 40), r.s(48)
+	timeW := r.width(tf, "88:88")
+	if ampm != "" {
+		timeW += r.s(12) + max(r.width(r.title, "AM"), r.width(r.title, "PM"))
 	}
-	r.fxLine(float64(col-r.s(30)), float64(top+r.s(4)), float64(col-r.s(30)), float64(divEnd), float64(r.s(2)), ember, 1)
+	tempX, tempW := box.Min.X+timeW+r.s(28), max(mark, r.width(hf, "-88°"), r.width(hf, "888°"))
+	// The next events, in a column right of the middle, which is left to a tap that starts Assist: a
+	// steady margin past the time and the temperature, as much air either side of the divider at col-30.
+	col := min(max(tempX+tempW+r.s(60), r.w/2+r.s(40)), r.w/2+r.s(70))
+	// The temperature now, while the row of the coming days, which only has their highs and lows, is
+	// up; without the row, the weather line under the date has it. Beside the time, the icon over the
+	// degrees, where that always fits; otherwise at the end of the events' heading. A tap on it opens the
+	// forecast, as one on the row does.
+	if t := s.weather.Temp; t != "" && showRow {
+		if tempX+tempW <= col-r.s(40) {
+			cx := tempX + tempW/2
+			if s.weather.Condition != "" {
+				r.weatherIcon(s.weather.Condition, cx, top+r.s(14)+mark/2, mark)
+			}
+			r.text(hf, t, cx-r.width(hf, t)/2, base, cream)
+			r.setTempAt(image.Rect(tempX, top+r.s(14), tempX+tempW, base).Inset(-r.s(10)))
+		} else {
+			hf, mark = r.styleFace(true, 30), r.s(40)
+			x := r.w - r.margin - r.width(hf, t)
+			r.text(hf, t, x, top+r.s(24), cream)
+			if s.weather.Condition != "" {
+				r.weatherIcon(s.weather.Condition, x-r.s(10)-mark/2, top+r.s(24)-capHeight(hf)/2, mark)
+			}
+			wide := max(r.width(hf, "-88°"), r.width(hf, "888°"))
+			r.setTempAt(image.Rect(r.w-r.margin-wide-r.s(10)-mark, top, r.w-r.margin, top+r.s(34)))
+		}
+	}
+	r.styleDateIn(r.small, s, box.Min.X, base+r.s(50), -1, col-r.s(50)-box.Min.X)
 	r.text(r.styleFace(true, 20), locale.Upcoming(screenLang()), col, top+r.s(20), dim)
 	y := top + r.s(62)
 	if len(s.style.next) == 0 {
 		r.text(r.tiny, locale.NothingSoon(screenLang()), col, y, dim)
 	}
+	// As many events as fit above the row, or the foot, a line each.
+	shown, fit := s.style.next, 0
+	if evEnd >= y {
+		fit = (evEnd-y)/r.s(44) + 1
+	}
+	shown = shown[:min(len(shown), fit)]
 	// Each "when" is its day in the accent and its time beside it, quieter; the names start just past
-	// the widest, so short ones ("Sun") leave the names their room.
+	// the widest of those shown, so short ones ("Sun") leave the names their room.
 	whenWidth := func(day, hhm string) int {
 		w := r.width(r.tiny, day)
 		if hhm != "" {
@@ -486,13 +488,10 @@ func (r *renderer) dashboardStyle(s scene, box image.Rectangle) {
 		return w
 	}
 	tx := col
-	for _, e := range s.style.next {
+	for _, e := range shown {
 		tx = max(tx, col+whenWidth(dashWhen(e, s.now))+r.s(18))
 	}
-	for _, e := range s.style.next {
-		if y > evEnd {
-			break
-		}
+	for _, e := range shown {
 		day, hhm := dashWhen(e, s.now)
 		r.text(r.tiny, day, col, y, amber)
 		if hhm != "" {
@@ -501,6 +500,13 @@ func (r *renderer) dashboardStyle(s scene, box image.Rectangle) {
 		r.text(r.tiny, r.clipTo(r.tiny, e.Summary, r.w-r.margin-tx), tx, y, cream)
 		y += r.s(44)
 	}
+	// The divider, between the time and the events: past the date and the last event, and down to the
+	// row when it is up.
+	divEnd := max(base+r.s(56), y-r.s(30))
+	if showRow {
+		divEnd = max(divEnd, evEnd)
+	}
+	r.fxLine(float64(col-r.s(30)), float64(top+r.s(4)), float64(col-r.s(30)), float64(divEnd), float64(r.s(2)), ember, 1)
 	// A tap on the column, its heading to its last line, opens the agenda.
 	r.setNextAt(image.Rect(col-r.s(20), top-r.s(10), r.w-r.margin, max(y-r.s(30), top+r.s(76))+r.s(10)))
 
